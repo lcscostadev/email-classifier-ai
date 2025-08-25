@@ -1,3 +1,23 @@
+:root {
+  --bg: #0b0f14;
+  --panel: #121821;
+  --muted: #8ea0b5;
+  --text: #e9f0f8;
+
+  --accent: #7aa2ff;
+  --accent-2: #22c55e;
+  --accent-3: #fb7185;
+  --warning: #fbbf24;
+
+  --border: #213049;
+  --chip: #182235;
+  --chip-border: #2b3c5a;
+
+  --focus: 0 0 0 3px rgba(122,162,255,.35);
+  --radius: 14px;
+  --shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -6,8 +26,8 @@
 
 body {
   font-family: Arial, sans-serif;
-  background: #f5f7fa;
-  color: #222;
+  background: var(--bg);
+  color: var(--text);
   line-height: 1.4;
   padding: 24px;
   display: flex;
@@ -19,31 +39,33 @@ body {
 }
 
 fieldset {
-  border: 1px solid #ccc;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 18px;
-  background: #fff;
+  background: var(--panel);
+  box-shadow: var(--shadow);
 }
 
 legend {
   font-weight: bold;
-  color: #555;
+  color: var(--muted);
 }
 
 label {
   display: block;
   margin: 12px 0 6px;
   font-weight: 600;
-  color: #333;
+  color: var(--text);
 }
 
 input[type="file"] {
   width: 100%;
   padding: 10px;
-  border: 1px dashed #bbb;
+  border: 1px dashed var(--chip-border);
   border-radius: 6px;
-  background: #fafafa;
+  background: var(--chip);
   cursor: pointer;
+  color: var(--muted);
 }
 
 textarea {
@@ -51,9 +73,11 @@ textarea {
   min-height: 120px;
   resize: vertical;
   padding: 10px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-family: inherit;
+  background: var(--chip);
+  color: var(--text);
 }
 
 button {
@@ -61,7 +85,7 @@ button {
   padding: 12px 18px;
   border: none;
   border-radius: 6px;
-  background: #007bff;
+  background: var(--accent);
   color: #fff;
   font-weight: bold;
   cursor: pointer;
@@ -69,20 +93,21 @@ button {
 }
 
 button:hover {
-  background: #0069d9;
+  background: var(--accent-2);
 }
 
 .hint {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--muted);
   margin-top: 4px;
 }
 
 #results {
   margin-top: 20px;
   padding: 16px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   min-height: 50px;
+  color: var(--text);
 }
