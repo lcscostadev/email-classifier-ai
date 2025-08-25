@@ -1,12 +1,34 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Automation of email reading and classification</title>
+  <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
-  
+  <div class="container">
+    <form id="emailForm">
+      <fieldset>
+        <legend>Send email</legend>
+
+        <label for="emailFiles">(.txt or pdf) files</label>
+        <input
+          id="emailFiles"
+          type="file"
+          accept=".txt,.pdf,text/plain,application/pdf"
+          multiple
+        >
+
+        <div class="hint">Accepts .txt and .pdf (multiple files allowed).</div>
+        <p class="hint">or</p>
+        <label for="emailText">Paste the email text</label>
+        <textarea name="emailText" id="email_text" placeholder="Paste the email content here..." rows="8"></textarea>
+
+        <button type="submit">Proccess document</button>
+      </fieldset>
+    </form>
+    <div id="results"></div>
+  </div>
 </body>
 </html>
