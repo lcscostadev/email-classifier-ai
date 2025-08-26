@@ -11,3 +11,6 @@ threadpoolctl==3.5.0
 
 regex==2024.5.15
 nltk==3.8.1
+
+# novo
+httpx==0.28.1
