@@ -1,7 +1,7 @@
 import os
 import re
 from io import BytesIO
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import httpx
 from fastapi import FastAPI, UploadFile, File, Form, Request, HTTPException
@@ -166,13 +166,29 @@ def health():
 @app.post("/api/process")
 async def process_emails(
     request: Request,
-    files: Optional[List[UploadFile]] = File(default=None),
+    # aceita 1 arquivo (UploadFile) OU múltiplos arquivos (List[UploadFile])
+    files: Optional[Union[UploadFile, List[UploadFile]]] = File(default=None),
     text: Optional[str] = Form(default=None),
 ):
     results = []
 
+    # --- normaliza 'files' para uma lista ---
+    files_list: List[UploadFile] = []
+    if isinstance(files, UploadFile):
+        files_list = [files]
+    elif isinstance(files, list) and files:
+        files_list = files
+    else:
+        # alguns clientes mandam como "files[]" ou múltiplos campos "files"
+        try:
+            form = await request.form()
+            alt_list = form.getlist("files") or form.getlist("files[]")
+            files_list = [f for f in alt_list if isinstance(f, UploadFile)]
+        except Exception:
+            pass
+
     # Fallback: se não vier form-data com 'text', tente JSON {"text": "..."}
-    if (not files) and (not (text and text.strip())):
+    if (not files_list) and (not (text and text.strip())):
         try:
             if "application/json" in (request.headers.get("content-type") or ""):
                 body = await request.json()
@@ -188,34 +204,33 @@ async def process_emails(
         )
 
     # 2) Arquivos
-    if files:
-        for f in files:
-            raw = await f.read()
-            filename = f.filename or "file"
+    for f in files_list:
+        raw = await f.read()
+        filename = f.filename or "file"
 
-            # PDF com try/except e mensagem clara
-            if filename.lower().endswith(".pdf") or (f.content_type or "").lower() == "application/pdf":
-                try:
-                    content = pdf_extract(BytesIO(raw))
-                    if not content or not content.strip():
-                        raise ValueError("PDF sem texto extraível (possivelmente digitalizado ou protegido).")
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Falha ao ler PDF '{filename}': {e}",
-                    )
-            else:
-                content = read_txt_bytes(raw)
+        # PDF com try/except e mensagem clara
+        if filename.lower().endswith(".pdf") or (f.content_type or "").lower() == "application/pdf":
+            try:
+                content = pdf_extract(BytesIO(raw))
+                if not content or not content.strip():
+                    raise ValueError("PDF sem texto extraível (possivelmente digitalizado ou protegido).")
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Falha ao ler PDF '{filename}': {e}",
+                )
+        else:
+            content = read_txt_bytes(raw)
 
-            label, conf, suggestion = decide_and_suggest(content)
-            results.append(
-                {"source": filename, "category": label, "confidence": conf, "suggestion": suggestion}
-            )
+        label, conf, suggestion = decide_and_suggest(content)
+        results.append(
+            {"source": filename, "category": label, "confidence": conf, "suggestion": suggestion}
+        )
 
     if not results:
         raise HTTPException(
             status_code=400,
-            detail="Envie 'text' (JSON ou form-data) ou 'files' como multipart/form-data.",
+            detail="Envie 'text' (JSON ou form-data) ou 'file(s)' como multipart/form-data.",
         )
 
     return results
