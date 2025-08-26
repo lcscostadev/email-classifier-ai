@@ -3,7 +3,7 @@ const fileInput = document.getElementById('emailFiles')
 const textInput = document.getElementById('emailText')
 const resultsDiv = document.getElementById('results')
 
-const API_URL = "http://localhost:8000/api/process"
+const API_URL = "http://127.0.0.1:8000/api/process"
 
 form.addEventListener("submit", async e => {
   e.preventDefault()
