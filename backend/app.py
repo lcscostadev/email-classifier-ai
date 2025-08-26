@@ -1,72 +1,5 @@
-# from fastapi import FastAPI, UploadFile, File, Form
-# from fastapi.middleware.cors import CORSMiddleware
-# from typing import List
-# from pdfminer.high_level import extract_text as pdf_extract
-# from nlp import classify
-# from templates import PRODUCTIVE_REPLY, NON_PRODUCTIVE_REPLY
-
-# app = FastAPI(title="Email Classifier API")
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# def read_txt_bytes(b: bytes) -> str:
-#     try:
-#         return b.decode('utf-8', errors='ignore')
-#     except:
-#         return b.decode('latin-1', errors='ignore')
-
-# @app.get("/api/health")
-# def health():
-#     return {"status": "ok"}
-
-# @app.post("/api/process")
-# async def process_emails(files: List[UploadFile] = File(default=[]), text: str = Form(default="")):
-#     results = []
-
-#     # 1) Texto colado
-#     if text.strip():
-#         label, conf = classify(text)
-#         suggestion = PRODUCTIVE_REPLY if label == "Produtivo" else NON_PRODUCTIVE_REPLY
-#         results.append({
-#             "source": "input_text",
-#             "category": label,
-#             "confidence": conf,
-#             "suggestion": suggestion
-#         })
-
-#     for f in files:
-#         content = ""
-#         data = await f.read()
-
-#         if f.filename.lower().endswith(".pdf"):
-#             try:
-#                 content = pdf_extract(f.file)  
-#             except:
-#                 from io import BytesIO
-#                 content = pdf_extract(BytesIO(data))
-#         else:
-#             content = read_txt_bytes(data)
-
-#         label, conf = classify(content)
-#         suggestion = PRODUCTIVE_REPLY if label == "Produtivo" else NON_PRODUCTIVE_REPLY
-
-#         results.append({
-#             "source": f.filename,
-#             "category": label,
-#             "confidence": conf,
-#             "suggestion": suggestion
-#         })
-
-#     return results
-
-
 import os
+import re
 from io import BytesIO
 from typing import List, Optional
 
@@ -88,6 +21,21 @@ USE_HF = bool(USE_HF_ENV and HF_TOKEN)  # só ativa HF se houver token
 HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
 HF_ZERO_SHOT_MODEL = "facebook/bart-large-mnli"
 HF_T2T_MODEL = "google/flan-t5-base"  # para gerar resposta curta em PT-BR
+
+# --------- Regras de negócio (saudações/boas festas) ----------
+HOLIDAY_PATTERNS = [
+    r"\bfeliz\s+natal\b",
+    r"\bboas\s+festas\b",
+    r"\bfeliz\s+ano\s+novo\b",
+    r"\bbo[mn]\s+natal\b",          # "bom natal" / "bon natal" (tolerante)
+    r"\bmerry\s+christmas\b",
+    r"\bhappy\s+new\s+year\b",
+]
+
+def is_holiday_greeting(text: str) -> bool:
+    t = (text or "").lower()
+    t = re.sub(r"\s+", " ", t)
+    return any(re.search(p, t, flags=re.IGNORECASE) for p in HOLIDAY_PATTERNS)
 
 
 def hf_zero_shot_productive(text: str):
@@ -149,15 +97,24 @@ def hf_generate_reply(category: str, email_text: str) -> str:
 def decide_and_suggest(text: str):
     """
     Decide a categoria e produz a resposta:
+      - Regras de negócio (curto-circuito) para saudações de fim de ano.
       - Se USE_HF=1 (e token presente), usa HF com fallback.
       - Caso contrário, usa o classificador local + templates.
     """
+    # 0) Regra de curto-circuito para saudações/boas festas
+    if is_holiday_greeting(text):
+        label = "Improdutivo"
+        conf = 0.95
+        suggestion = NON_PRODUCTIVE_REPLY
+        return label, conf, suggestion
+
+    # 1) Modo HF (se ativo)
     if USE_HF:
         label, conf = hf_zero_shot_productive(text)
         suggestion = hf_generate_reply(label, text)
         return label, conf, suggestion
 
-    # modo local
+    # 2) Modo local
     label, conf = local_classify(text)
     suggestion = PRODUCTIVE_REPLY if label == "Produtivo" else NON_PRODUCTIVE_REPLY
     return label, conf, suggestion
