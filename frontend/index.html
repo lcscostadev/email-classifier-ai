@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Automation of email reading and classification</title>
+  <title>Automação de leitura e classificação de emails</title>
   <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
   <div class="container">
     <form id="emailForm">
       <fieldset>
-        <legend>Send email</legend>
+        <legend>Envie email</legend>
 
-        <label for="emailFiles">(.txt or pdf) files</label>
+        <label for="emailFiles">Arquivos (.txt ou pdf)</label>
         <input
           id="emailFiles"
           type="file"
@@ -20,12 +20,12 @@
           multiple
         >
 
-        <div class="hint">Accepts .txt and .pdf (multiple files allowed).</div>
-        <p class="hint">or</p>
-        <label for="emailText">Paste the email text</label>
-        <textarea name="emailText" id="emailText" placeholder="Paste the email content here..." rows="8"></textarea>
+        <div class="hint">Aceita .txt e .pdf (Arquivos multiplos são permitidos).</div>
+        <p class="hint">ou</p>
+        <label for="emailText">Insira o texto do email</label>
+        <textarea name="emailText" id="emailText" placeholder="Passe o conteúdo do email aqui" rows="8"></textarea>
 
-        <button type="submit">Proccess document</button>
+        <button type="submit">Processar documento</button>
       </fieldset>
     </form>
     <div id="results"></div>
