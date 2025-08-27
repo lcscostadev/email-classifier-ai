@@ -167,28 +167,45 @@ def health():
 async def process_emails(
     request: Request,
     # aceita 1 arquivo (UploadFile) OU múltiplos arquivos (List[UploadFile])
-    files: Optional[Union[UploadFile, List[UploadFile]]] = File(default=None),
+    file: Optional[UploadFile] = File(default=None),
+    files: Optional[List[UploadFile]] = File(default=None),
     text: Optional[str] = Form(default=None),
 ):
     results = []
 
-    # --- normaliza 'files' para uma lista ---
+    # --- normaliza 'files' para uma lista única (file + files + files[]) ---
     files_list: List[UploadFile] = []
-    if isinstance(files, UploadFile):
-        files_list = [files]
-    elif isinstance(files, list) and files:
-        files_list = files
-    else:
-        # alguns clientes mandam como "files[]" ou múltiplos campos "files"
-        try:
-            form = await request.form()
-            alt_list = form.getlist("files") or form.getlist("files[]")
-            files_list = [f for f in alt_list if isinstance(f, UploadFile)]
-        except Exception:
-            pass
+    if file is not None:
+        files_list.append(file)
+    if isinstance(files, list) and files:
+        files_list.extend(files)
 
-    # Fallback: se não vier form-data com 'text', tente JSON {"text": "..."}
-    if (not files_list) and (not (text and text.strip())):
+    # alguns clientes mandam como "files[]" ou múltiplos campos "files"
+    try:
+        form = await request.form()
+        alt_list = form.getlist("files") or form.getlist("files[]")
+        for it in alt_list:
+            if isinstance(it, UploadFile):
+                files_list.append(it)
+    except Exception:
+        pass
+
+    # remove duplicados (mesmo objeto) e vazios (sem nome)
+    dedup: List[UploadFile] = []
+    seen_ids = set()
+    for f in files_list:
+        if not isinstance(f, UploadFile):
+            continue
+        if not (f.filename and f.filename.strip()):
+            continue
+        if id(f) in seen_ids:
+            continue
+        seen_ids.add(id(f))
+        dedup.append(f)
+    files_list = dedup
+
+    # --- Fallback: se não veio form-data válido, tenta JSON {"text": "..."} ---
+    if (not files_list) and (not (text and str(text).strip())):
         try:
             if "application/json" in (request.headers.get("content-type") or ""):
                 body = await request.json()
@@ -196,41 +213,63 @@ async def process_emails(
         except Exception:
             pass
 
-    # 1) Texto colado
-    if text and text.strip():
+    # --- Regra de exclusividade: texto OU arquivo(s), nunca ambos ---
+    has_text = bool(text and str(text).strip())
+    has_files = bool(files_list)
+
+    if has_text and has_files:
+        raise HTTPException(
+            status_code=400,
+            detail="Escolha apenas UM modo de entrada: texto OU arquivo(s).",
+        )
+
+    # --- Caso: Texto ---
+    if has_text:
         label, conf, suggestion = decide_and_suggest(text)
-        results.append(
-            {"source": "input_text", "category": label, "confidence": conf, "suggestion": suggestion}
-        )
+        results.append({
+            "source": "input_text",
+            "category": label,
+            "confidence": conf,
+            "suggestion": suggestion
+        })
 
-    # 2) Arquivos
-    for f in files_list:
-        raw = await f.read()
-        filename = f.filename or "file"
+    # --- Caso: Arquivos ---
+    if has_files:
+        for f in files_list:
+            raw = await f.read()
+            # ignora anexos vazios (sem bytes)
+            if not raw:
+                continue
 
-        # PDF com try/except e mensagem clara
-        if filename.lower().endswith(".pdf") or (f.content_type or "").lower() == "application/pdf":
-            try:
-                content = pdf_extract(BytesIO(raw))
-                if not content or not content.strip():
-                    raise ValueError("PDF sem texto extraível (possivelmente digitalizado ou protegido).")
-            except Exception as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Falha ao ler PDF '{filename}': {e}",
-                )
-        else:
-            content = read_txt_bytes(raw)
+            filename = f.filename or "file"
 
-        label, conf, suggestion = decide_and_suggest(content)
-        results.append(
-            {"source": filename, "category": label, "confidence": conf, "suggestion": suggestion}
-        )
+            # PDF com try/except e mensagem clara
+            if filename.lower().endswith(".pdf") or (f.content_type or "").lower() == "application/pdf":
+                try:
+                    content = pdf_extract(BytesIO(raw))
+                    if not content or not content.strip():
+                        raise ValueError("PDF sem texto extraível (possivelmente digitalizado ou protegido).")
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Falha ao ler PDF '{filename}': {e}",
+                    )
+            else:
+                content = read_txt_bytes(raw)
 
+            label, conf, suggestion = decide_and_suggest(content)
+            results.append({
+                "source": filename,
+                "category": label,
+                "confidence": conf,
+                "suggestion": suggestion
+            })
+
+    # Nada enviado
     if not results:
         raise HTTPException(
             status_code=400,
-            detail="Envie 'text' (JSON ou form-data) ou 'file(s)' como multipart/form-data.",
+            detail="Envie APENAS 'text' (JSON ou form-data) OU APENAS 'file(s)' como multipart/form-data.",
         )
 
     return results
