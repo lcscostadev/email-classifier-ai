@@ -35,7 +35,7 @@ HOLIDAY_PATTERNS = [
 def is_holiday_greeting(text: str) -> bool:
     t = (text or "").lower()
     t = re.sub(r"\s+", " ", t)
-    return any(re.search(p, t, flags=re.IGNORECASE) for p in HOLIDAY_PATTERNS))
+    return any(re.search(p, t, flags=re.IGNORECASE) for p in HOLIDAY_PATTERNS)
 
 
 def hf_zero_shot_productive(text: str):
