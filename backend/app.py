@@ -121,7 +121,7 @@ def decide_and_suggest(text: str):
 
 
 # --------- FastAPI App ----------
-app = FastAPI(title="Email Classifier API")
+app = FastAPI(title="Email Classifier API", openapi_version="3.0.2")
 
 # Em produção, substitua allow_origins pelo domínio do seu front (Vercel)
 app.add_middleware(
