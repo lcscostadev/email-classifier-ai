@@ -27,7 +27,7 @@ HOLIDAY_PATTERNS = [
     r"\bfeliz\s+natal\b",
     r"\bboas\s+festas\b",
     r"\bfeliz\s+ano\s+novo\b",
-    r"\bbo[mn]\s+natal\b",          # "bom natal" / "bon natal" (tolerante)
+    r"\bbo[mn]\s+natal\b",
     r"\bmerry\s+christmas\b",
     r"\bhappy\s+new\s+year\b",
 ]
@@ -35,14 +35,11 @@ HOLIDAY_PATTERNS = [
 def is_holiday_greeting(text: str) -> bool:
     t = (text or "").lower()
     t = re.sub(r"\s+", " ", t)
-    return any(re.search(p, t, flags=re.IGNORECASE) for p in HOLIDAY_PATTERNS)
+    return any(re.search(p, t, flags=re.IGNORECASE) for p in HOLIDAY_PATTERNS))
 
 
 def hf_zero_shot_productive(text: str):
-    """
-    Classifica Produtivo vs Improdutivo via zero-shot (BART-MNLI).
-    Com fallback para o classificador local em caso de erro.
-    """
+    """Zero-shot (BART-MNLI) com fallback local."""
     url = f"https://api-inference.huggingface.co/models/{HF_ZERO_SHOT_MODEL}"
     payload = {
         "inputs": text,
@@ -57,15 +54,11 @@ def hf_zero_shot_productive(text: str):
         return label, score
     except Exception as e:
         print(f"[HF zero-shot] erro: {e}", flush=True)
-        # fallback local
         return local_classify(text)
 
 
 def hf_generate_reply(category: str, email_text: str) -> str:
-    """
-    Gera uma resposta curta, educada e em PT-BR para a categoria detectada.
-    Com fallback para template em caso de erro.
-    """
+    """Gera resposta breve em PT-BR (FLAN-T5) com fallback."""
     url = f"https://api-inference.huggingface.co/models/{HF_T2T_MODEL}"
     prompt = (
         "Você é um assistente de suporte ao cliente de uma empresa financeira.\n"
@@ -96,25 +89,16 @@ def hf_generate_reply(category: str, email_text: str) -> str:
 
 def decide_and_suggest(text: str):
     """
-    Decide a categoria e produz a resposta:
-      - Regras de negócio (curto-circuito) para saudações de fim de ano.
-      - Se USE_HF=1 (e token presente), usa HF com fallback.
-      - Caso contrário, usa o classificador local + templates.
+    Curto-circuito para saudações; depois HF (se ativo) ou classificador local.
     """
-    # 0) Regra de curto-circuito para saudações/boas festas
     if is_holiday_greeting(text):
-        label = "Improdutivo"
-        conf = 0.95
-        suggestion = NON_PRODUCTIVE_REPLY
-        return label, conf, suggestion
+        return "Improdutivo", 0.95, NON_PRODUCTIVE_REPLY
 
-    # 1) Modo HF (se ativo)
     if USE_HF:
         label, conf = hf_zero_shot_productive(text)
         suggestion = hf_generate_reply(label, text)
         return label, conf, suggestion
 
-    # 2) Modo local
     label, conf = local_classify(text)
     suggestion = PRODUCTIVE_REPLY if label == "Produtivo" else NON_PRODUCTIVE_REPLY
     return label, conf, suggestion
@@ -123,10 +107,10 @@ def decide_and_suggest(text: str):
 # --------- FastAPI App ----------
 app = FastAPI(title="Email Classifier API", openapi_version="3.0.2")
 
-# Em produção, substitua allow_origins pelo domínio do seu front (Vercel)
+# CORS (ajuste allow_origins para seu domínio do front em produção)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ex.: ["https://seu-front.vercel.app"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -166,45 +150,28 @@ def health():
 @app.post("/api/process")
 async def process_emails(
     request: Request,
-    # aceita 1 arquivo (UploadFile) OU múltiplos arquivos (List[UploadFile])
-    file: Optional[UploadFile] = File(default=None),
-    files: Optional[List[UploadFile]] = File(default=None),
+    # aceita 1 OU vários no mesmo campo 'files'
+    files: Optional[Union[UploadFile, List[UploadFile]]] = File(default=None),
     text: Optional[str] = Form(default=None),
 ):
-    results = []
+    results: List[dict] = []
 
-    # --- normaliza 'files' para uma lista única (file + files + files[]) ---
+    # --- normaliza 'files' para uma lista única ---
     files_list: List[UploadFile] = []
-    if file is not None:
-        files_list.append(file)
-    if isinstance(files, list) and files:
-        files_list.extend(files)
+    if isinstance(files, UploadFile):
+        files_list = [files]
+    elif isinstance(files, list) and files:
+        files_list = files
+    else:
+        # tenta capturar 'files' ou 'files[]' que alguns clientes mandam
+        try:
+            form = await request.form()
+            alt_list = form.getlist("files") or form.getlist("files[]")
+            files_list = [f for f in alt_list if isinstance(f, UploadFile)]
+        except Exception:
+            pass
 
-    # alguns clientes mandam como "files[]" ou múltiplos campos "files"
-    try:
-        form = await request.form()
-        alt_list = form.getlist("files") or form.getlist("files[]")
-        for it in alt_list:
-            if isinstance(it, UploadFile):
-                files_list.append(it)
-    except Exception:
-        pass
-
-    # remove duplicados (mesmo objeto) e vazios (sem nome)
-    dedup: List[UploadFile] = []
-    seen_ids = set()
-    for f in files_list:
-        if not isinstance(f, UploadFile):
-            continue
-        if not (f.filename and f.filename.strip()):
-            continue
-        if id(f) in seen_ids:
-            continue
-        seen_ids.add(id(f))
-        dedup.append(f)
-    files_list = dedup
-
-    # --- Fallback: se não veio form-data válido, tenta JSON {"text": "..."} ---
+    # --- fallback JSON {"text": "..."} se não veio form-data válido ---
     if (not files_list) and (not (text and str(text).strip())):
         try:
             if "application/json" in (request.headers.get("content-type") or ""):
@@ -213,7 +180,7 @@ async def process_emails(
         except Exception:
             pass
 
-    # --- Regra de exclusividade: texto OU arquivo(s), nunca ambos ---
+    # --- Exclusividade: texto OU arquivo(s) ---
     has_text = bool(text and str(text).strip())
     has_files = bool(files_list)
 
@@ -223,9 +190,9 @@ async def process_emails(
             detail="Escolha apenas UM modo de entrada: texto OU arquivo(s).",
         )
 
-    # --- Caso: Texto ---
+    # --- Texto ---
     if has_text:
-        label, conf, suggestion = decide_and_suggest(text)
+        label, conf, suggestion = decide_and_suggest(text)  # type: ignore[arg-type]
         results.append({
             "source": "input_text",
             "category": label,
@@ -233,17 +200,28 @@ async def process_emails(
             "suggestion": suggestion
         })
 
-    # --- Caso: Arquivos ---
+    # --- Arquivos ---
     if has_files:
+        dedup: List[UploadFile] = []
+        seen_ids = set()
+        for f in files_list:
+            if not isinstance(f, UploadFile):
+                continue
+            if not (f.filename and f.filename.strip()):
+                continue
+            if id(f) in seen_ids:
+                continue
+            seen_ids.add(id(f))
+            dedup.append(f)
+        files_list = dedup
+
         for f in files_list:
             raw = await f.read()
-            # ignora anexos vazios (sem bytes)
             if not raw:
                 continue
 
             filename = f.filename or "file"
 
-            # PDF com try/except e mensagem clara
             if filename.lower().endswith(".pdf") or (f.content_type or "").lower() == "application/pdf":
                 try:
                     content = pdf_extract(BytesIO(raw))
@@ -265,11 +243,10 @@ async def process_emails(
                 "suggestion": suggestion
             })
 
-    # Nada enviado
     if not results:
         raise HTTPException(
             status_code=400,
-            detail="Envie APENAS 'text' (JSON ou form-data) OU APENAS 'file(s)' como multipart/form-data.",
+            detail="Envie APENAS 'text' (JSON ou form-data) OU APENAS 'files' como multipart/form-data.",
         )
 
     return results
