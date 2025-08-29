@@ -251,7 +251,6 @@
 
 #     return results
 
-
 import os
 import re
 from io import BytesIO
@@ -468,103 +467,149 @@ async def process_emails(
                 print(f"[DEBUG] Arquivo válido: {f.filename}")
             else:
                 print(f"[DEBUG] Arquivo inválido: {f}")
+@app.post("/api/process")
+async def process_emails(request: Request):
+    results: List[dict] = []
+
+    try:
+        # Captura o form completo manualmente
+        form = await request.form()
+        print(f"[DEBUG] Form keys disponíveis: {list(form.keys())}")
+        print(f"[DEBUG] Content-Type: {request.headers.get('content-type')}")
+
+        # Verifica se há texto
+        text_value = None
+        for key in ['text', 'emailText']:
+            if key in form:
+                text_value = form[key]
+                break
         
-        if not valid_files:
-            raise HTTPException(
-                status_code=400,
-                detail="Nenhum arquivo válido encontrado. Verifique se os arquivos têm nome e conteúdo."
-            )
+        if text_value and str(text_value).strip():
+            print(f"[DEBUG] Processando texto de campo '{key}'")
+            label, conf, suggestion = decide_and_suggest(str(text_value).strip())
+            results.append({
+                "source": "input_text",
+                "category": label,
+                "confidence": conf,
+                "suggestion": suggestion
+            })
+            return results
 
-        for file in valid_files:
-            try:
-                # Lê o conteúdo do arquivo
-                file_content = await file.read()
+        # Verifica se há arquivos em qualquer campo possível
+        file_fields = ['files', 'file', 'emailFiles', 'upload', 'documents']
+        files_found = []
+        
+        for field_name in file_fields:
+            if field_name in form:
+                print(f"[DEBUG] Campo '{field_name}' encontrado")
+                field_value = form[field_name]
                 
-                if not file_content:
-                    results.append({
-                        "source": file.filename,
-                        "error": "Arquivo vazio",
-                        "category": None,
-                        "confidence": 0,
-                        "suggestion": None
-                    })
-                    continue
-
-                # Reset do ponteiro do arquivo para permitir releitura se necessário
-                await file.seek(0)
-
-                filename = file.filename.lower()
-                content_type = (file.content_type or "").lower()
-
-                # Extração de texto baseada no tipo de arquivo
-                if filename.endswith(".pdf") or content_type == "application/pdf":
+                if isinstance(field_value, UploadFile):
+                    files_found.append(field_value)
+                    print(f"[DEBUG] Arquivo único em '{field_name}': {field_value.filename}")
+                elif hasattr(form, 'getlist'):
+                    # FastAPI form pode ter getlist para múltiplos valores
                     try:
-                        content = pdf_extract(BytesIO(file_content))
-                        if not content or not content.strip():
-                            raise ValueError("PDF sem texto extraível")
+                        multiple_files = form.getlist(field_name)
+                        for item in multiple_files:
+                            if isinstance(item, UploadFile):
+                                files_found.append(item)
+                                print(f"[DEBUG] Arquivo múltiplo em '{field_name}': {item.filename}")
                     except Exception as e:
+                        print(f"[DEBUG] Erro ao buscar múltiplos em '{field_name}': {e}")
+
+        print(f"[DEBUG] Total de arquivos encontrados: {len(files_found)}")
+        
+        if files_found:
+            # Processa os arquivos encontrados
+            for file in files_found:
+                try:
+                    print(f"[DEBUG] Processando arquivo: {file.filename}")
+                    
+                    # Lê o conteúdo do arquivo
+                    file_content = await file.read()
+                    print(f"[DEBUG] Tamanho do arquivo: {len(file_content)} bytes")
+                    
+                    if not file_content:
                         results.append({
                             "source": file.filename,
-                            "error": f"Erro ao processar PDF: {str(e)}",
+                            "error": "Arquivo vazio",
                             "category": None,
                             "confidence": 0,
                             "suggestion": None
                         })
                         continue
-                else:
-                    # Arquivo de texto
-                    content = read_txt_bytes(file_content)
 
-                # Verifica se há conteúdo para classificar
-                if not content or not content.strip():
+                    filename = file.filename.lower()
+                    content_type = (file.content_type or "").lower()
+                    print(f"[DEBUG] Content-type: {content_type}")
+
+                    # Extração de texto baseada no tipo de arquivo
+                    if filename.endswith(".pdf") or content_type == "application/pdf":
+                        try:
+                            print("[DEBUG] Extraindo texto do PDF...")
+                            content = pdf_extract(BytesIO(file_content))
+                            if not content or not content.strip():
+                                raise ValueError("PDF sem texto extraível")
+                            print(f"[DEBUG] Texto extraído: {len(content)} caracteres")
+                        except Exception as e:
+                            print(f"[DEBUG] Erro PDF: {e}")
+                            results.append({
+                                "source": file.filename,
+                                "error": f"Erro ao processar PDF: {str(e)}",
+                                "category": None,
+                                "confidence": 0,
+                                "suggestion": None
+                            })
+                            continue
+                    else:
+                        # Arquivo de texto
+                        print("[DEBUG] Processando como texto...")
+                        content = read_txt_bytes(file_content)
+
+                    # Verifica se há conteúdo para classificar
+                    if not content or not content.strip():
+                        results.append({
+                            "source": file.filename,
+                            "error": "Arquivo sem conteúdo de texto",
+                            "category": None,
+                            "confidence": 0,
+                            "suggestion": None
+                        })
+                        continue
+
+                    print(f"[DEBUG] Classificando texto de {len(content)} chars...")
+                    # Classifica o conteúdo
+                    label, conf, suggestion = decide_and_suggest(content.strip())
                     results.append({
                         "source": file.filename,
-                        "error": "Arquivo sem conteúdo de texto",
+                        "category": label,
+                        "confidence": conf,
+                        "suggestion": suggestion
+                    })
+                    print(f"[DEBUG] Resultado: {label} ({conf})")
+
+                except Exception as e:
+                    print(f"[DEBUG] Erro geral ao processar {file.filename}: {e}")
+                    results.append({
+                        "source": file.filename,
+                        "error": f"Erro interno: {str(e)}",
                         "category": None,
                         "confidence": 0,
                         "suggestion": None
                     })
-                    continue
 
-                # Classifica o conteúdo
-                label, conf, suggestion = decide_and_suggest(content.strip())
-                results.append({
-                    "source": file.filename,
-                    "category": label,
-                    "confidence": conf,
-                    "suggestion": suggestion
-                })
+            return results
 
-            except Exception as e:
-                print(f"Erro ao processar arquivo {file.filename}: {str(e)}", flush=True)
-                results.append({
-                    "source": file.filename,
-                    "error": f"Erro interno: {str(e)}",
-                    "category": None,
-                    "confidence": 0,
-                    "suggestion": None
-                })
+    except Exception as e:
+        print(f"[DEBUG] Erro ao processar form: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro interno ao processar requisição: {str(e)}"
+        )
 
-        return results
-
-    # --- Fallback para JSON ---
-    try:
-        if "application/json" in (request.headers.get("content-type") or ""):
-            body = await request.json()
-            json_text = (body.get("text") or "").strip()
-            if json_text:
-                label, conf, suggestion = decide_and_suggest(json_text)
-                results.append({
-                    "source": "json_input",
-                    "category": label,
-                    "confidence": conf,
-                    "suggestion": suggestion
-                })
-                return results
-    except Exception:
-        pass
-
+    # Se chegou até aqui, não há texto nem arquivos
     raise HTTPException(
         status_code=400,
-        detail="Envie texto através do campo 'text' ou arquivos através do campo 'files'."
+        detail="Nenhum conteúdo encontrado. Envie texto ou arquivos válidos."
     )
