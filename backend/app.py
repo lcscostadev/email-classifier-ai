@@ -250,6 +250,8 @@
 #         )
 
 #     return results
+
+
 import os
 import re
 from io import BytesIO
@@ -402,7 +404,7 @@ def health():
 @app.post("/api/process")
 async def process_emails(
     request: Request,
-    files: Optional[List[UploadFile]] = File(default=None),
+    files: Union[UploadFile, List[UploadFile], None] = File(default=None),
     text: Optional[str] = Form(default=None),
 ):
     results: List[dict] = []
@@ -420,8 +422,14 @@ async def process_emails(
 
     # --- Processamento de arquivos ---
     if files:
+        # Normaliza files para sempre ser uma lista
+        if isinstance(files, UploadFile):
+            files_list = [files]
+        else:
+            files_list = files if isinstance(files, list) else []
+        
         # Filtra arquivos válidos
-        valid_files = [f for f in files if f and f.filename and f.filename.strip()]
+        valid_files = [f for f in files_list if f and f.filename and f.filename.strip()]
         
         if not valid_files:
             raise HTTPException(

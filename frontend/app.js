@@ -69,9 +69,9 @@ form.addEventListener('submit', async (e) => {
   resultsDiv.textContent = 'Processando…';
 
   const formData = new FormData();
-  
+
   if (hasFiles) {
-    // Adiciona todos os arquivos válidos
+    // Sempre envia como array - isso força o FastAPI a manter consistência
     Array.from(fileInput.files).forEach(file => {
       if (file && file.name && file.size > 0) {
         formData.append('files', file);
@@ -82,11 +82,11 @@ form.addEventListener('submit', async (e) => {
   }
 
   try {
-    const res = await fetch(API_URL, { 
-      method: 'POST', 
-      body: formData 
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      body: formData
     });
-    
+
     if (!res.ok) {
       const errBody = await res.text().catch(() => 'Erro desconhecido');
       console.error('Erro HTTP', res.status, errBody);
