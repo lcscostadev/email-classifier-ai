@@ -69,19 +69,26 @@ form.addEventListener('submit', async (e) => {
   resultsDiv.textContent = 'Processando…';
 
   const formData = new FormData();
+  
   if (hasFiles) {
-    for (const f of fileInput.files) {
-      // ignora arquivos “vazios” ou sem nome
-      if (f && f.name) formData.append('files', f);
-    }
+    // Adiciona todos os arquivos válidos
+    Array.from(fileInput.files).forEach(file => {
+      if (file && file.name && file.size > 0) {
+        formData.append('files', file);
+      }
+    });
   } else {
     formData.append('text', txt);
   }
 
   try {
-    const res = await fetch(API_URL, { method: 'POST', body: formData });
+    const res = await fetch(API_URL, { 
+      method: 'POST', 
+      body: formData 
+    });
+    
     if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
+      const errBody = await res.text().catch(() => 'Erro desconhecido');
       console.error('Erro HTTP', res.status, errBody);
       resultsDiv.innerHTML = `
         <p>Falha ao processar (HTTP ${res.status}).</p>
@@ -94,6 +101,6 @@ form.addEventListener('submit', async (e) => {
     renderResults(data);
   } catch (err) {
     console.error(err);
-    resultsDiv.innerHTML = '<p>Falha ao processar. Tente novamente.</p>';
+    resultsDiv.innerHTML = '<p>Falha ao processar. Verifique sua conexão e tente novamente.</p>';
   }
 });
