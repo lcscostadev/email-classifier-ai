@@ -409,8 +409,14 @@ async def process_emails(
 ):
     results: List[dict] = []
 
+    # Debug logs
+    print(f"[DEBUG] text recebido: {bool(text and text.strip())}")
+    print(f"[DEBUG] files recebido: {files}")
+    print(f"[DEBUG] tipo de files: {type(files)}")
+
     # --- Processamento de texto ---
     if text and text.strip():
+        print("[DEBUG] Processando texto...")
         label, conf, suggestion = decide_and_suggest(text.strip())
         results.append({
             "source": "input_text",
@@ -421,20 +427,52 @@ async def process_emails(
         return results
 
     # --- Processamento de arquivos ---
+    files_list = []
+    
+    # Tenta múltiplas abordagens para capturar arquivos
     if files:
-        # Normaliza files para sempre ser uma lista
+        print(f"[DEBUG] files não é None, tipo: {type(files)}")
         if isinstance(files, UploadFile):
             files_list = [files]
-        else:
-            files_list = files if isinstance(files, list) else []
+            print(f"[DEBUG] Arquivo único: {files.filename}")
+        elif isinstance(files, list):
+            files_list = files
+            print(f"[DEBUG] Lista de arquivos: {[f.filename if f else 'None' for f in files]}")
+    
+    # Se não funcionou pela forma padrão, tenta pelo form manual
+    if not files_list:
+        print("[DEBUG] Tentando capturar arquivos via form...")
+        try:
+            form = await request.form()
+            print(f"[DEBUG] Form keys: {list(form.keys())}")
+            
+            # Tenta diferentes variações do nome do campo
+            for field_name in ['files', 'files[]', 'file']:
+                if field_name in form:
+                    field_value = form.getlist(field_name) if hasattr(form, 'getlist') else [form[field_name]]
+                    for item in field_value:
+                        if isinstance(item, UploadFile):
+                            files_list.append(item)
+                            print(f"[DEBUG] Arquivo encontrado via {field_name}: {item.filename}")
+        except Exception as e:
+            print(f"[DEBUG] Erro ao processar form: {e}")
+    
+    if files_list:
+        print(f"[DEBUG] Total de arquivos para processar: {len(files_list)}")
         
         # Filtra arquivos válidos
-        valid_files = [f for f in files_list if f and f.filename and f.filename.strip()]
+        valid_files = []
+        for f in files_list:
+            if f and hasattr(f, 'filename') and f.filename and f.filename.strip():
+                valid_files.append(f)
+                print(f"[DEBUG] Arquivo válido: {f.filename}")
+            else:
+                print(f"[DEBUG] Arquivo inválido: {f}")
         
         if not valid_files:
             raise HTTPException(
                 status_code=400,
-                detail="Nenhum arquivo válido encontrado."
+                detail="Nenhum arquivo válido encontrado. Verifique se os arquivos têm nome e conteúdo."
             )
 
         for file in valid_files:
